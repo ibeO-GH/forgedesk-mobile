@@ -6,6 +6,7 @@ import RegisterScreen from "../screens/auth/RegisterScreen";
 import DashboardScreen from "../screens/tasks/DashboardScreen";
 import CreateTaskScreen from "../screens/tasks/CreateTaskScreen";
 import EditTaskScreen from "../screens/tasks/EditTaskScreen";
+import TaskDetailsScreen from "../screens/tasks/TaskDetailsScreen";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -13,6 +14,9 @@ export type RootStackParamList = {
   Dashboard: undefined;
   CreateTask: undefined;
   EditTask: {
+    taskId: string;
+  };
+  TaskDetails: {
     taskId: string;
   };
 };
@@ -37,6 +41,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Dashboard" component={DashboardScreen} />
             <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
             <Stack.Screen name="EditTask" component={EditTaskScreen} />
+            <Stack.Screen name="TaskDetails" component={TaskDetailsScreen} />
           </>
         ) : (
           <>

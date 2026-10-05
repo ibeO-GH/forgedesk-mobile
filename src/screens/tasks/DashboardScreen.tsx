@@ -6,9 +6,10 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { deleteTask, getTasks, updateTaskStatus } from "../../api/tasks";
@@ -17,6 +18,8 @@ import { useAuth } from "../../context/AuthContext";
 import type { RootStackParamList } from "../../navigation/AppNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
+
+type StatusFilter = "all" | TaskStatus;
 
 const statusLabels: Record<TaskStatus, string> = {
   todo: "To Do",
@@ -42,36 +45,62 @@ function getNextStatus(status: TaskStatus): TaskStatus {
   return "todo";
 }
 
+function FilterButton({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={[styles.filterButton, active && styles.filterButtonActive]}
+      onPress={onPress}
+    >
+      <Text
+        style={[
+          styles.filterButtonText,
+          active && styles.filterButtonTextActive,
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 function TaskCard({
   task,
+  onOpen,
   onEdit,
   onStatusChange,
   onDelete,
 }: {
   task: Task;
+  onOpen: () => void;
   onEdit: () => void;
   onStatusChange: () => void;
   onDelete: () => void;
 }) {
   return (
     <View style={styles.taskCard}>
-      <View style={styles.taskTopRow}>
-        <View style={styles.taskContent}>
-          <Text style={styles.taskTitle}>{task.title}</Text>
+      <Pressable style={styles.taskContent} onPress={onOpen}>
+        <Text style={styles.taskTitle}>{task.title}</Text>
 
-          <View style={styles.badgeRow}>
-            <View style={styles.statusBadge}>
-              <Text style={styles.statusText}>{statusLabels[task.status]}</Text>
-            </View>
+        <View style={styles.badgeRow}>
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusText}>{statusLabels[task.status]}</Text>
+          </View>
 
-            <View style={styles.priorityBadge}>
-              <Text style={styles.priorityText}>
-                {priorityLabels[task.priority]}
-              </Text>
-            </View>
+          <View style={styles.priorityBadge}>
+            <Text style={styles.priorityText}>
+              {priorityLabels[task.priority]}
+            </Text>
           </View>
         </View>
-      </View>
+      </Pressable>
 
       <View style={styles.taskActions}>
         <Pressable style={styles.secondaryAction} onPress={onStatusChange}>
@@ -99,6 +128,9 @@ export default function DashboardScreen() {
   const navigation = useNavigation<Navigation>();
 
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -134,6 +166,24 @@ export default function DashboardScreen() {
       void loadTasks();
     }, [loadTasks]),
   );
+
+  const filteredTasks = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+
+    return tasks.filter((task) => {
+      const matchesSearch =
+        normalizedSearch.length === 0 ||
+        task.title.toLowerCase().includes(normalizedSearch);
+
+      const matchesStatus =
+        statusFilter === "all" || task.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [tasks, searchTerm, statusFilter]);
+
+  const hasActiveFilters =
+    searchTerm.trim().length > 0 || statusFilter !== "all";
 
   async function handleStatusChange(task: Task) {
     const nextStatus = getNextStatus(task.status);
@@ -190,6 +240,11 @@ export default function DashboardScreen() {
     }
   }
 
+  function clearFilters() {
+    setSearchTerm("");
+    setStatusFilter("all");
+  }
+
   function renderTask({ item }: { item: Task }) {
     const isBusy = busyTaskId === item.id;
 
@@ -197,6 +252,11 @@ export default function DashboardScreen() {
       <View style={styles.taskWrapper}>
         <TaskCard
           task={item}
+          onOpen={() =>
+            navigation.navigate("TaskDetails", {
+              taskId: item.id,
+            })
+          }
           onEdit={() =>
             navigation.navigate("EditTask", {
               taskId: item.id,
@@ -227,6 +287,7 @@ export default function DashboardScreen() {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#2563eb" />
+
         <Text style={styles.loadingText}>Loading your tasks...</Text>
       </View>
     );
@@ -235,12 +296,12 @@ export default function DashboardScreen() {
   return (
     <View style={styles.container}>
       <FlatList
-        data={tasks}
+        data={filteredTasks}
         keyExtractor={(item) => item.id}
         renderItem={renderTask}
         contentContainerStyle={[
           styles.listContent,
-          tasks.length === 0 && styles.emptyListContent,
+          filteredTasks.length === 0 && styles.emptyListContent,
         ]}
         refreshControl={
           <RefreshControl
@@ -254,7 +315,9 @@ export default function DashboardScreen() {
             <View style={styles.header}>
               <View style={styles.headerText}>
                 <Text style={styles.eyebrow}>FORGEDESK</Text>
+
                 <Text style={styles.title}>Your Tasks</Text>
+
                 <Text style={styles.subtitle}>
                   {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
                 </Text>
@@ -268,6 +331,7 @@ export default function DashboardScreen() {
             {error ? (
               <View style={styles.errorCard}>
                 <Text style={styles.errorTitle}>Something went wrong</Text>
+
                 <Text style={styles.errorText}>{error}</Text>
 
                 <Pressable
@@ -286,18 +350,87 @@ export default function DashboardScreen() {
               <Text style={styles.createButtonText}>+ Create task</Text>
             </Pressable>
 
-            {tasks.length > 0 ? (
-              <Text style={styles.sectionTitle}>All tasks</Text>
+            <View style={styles.discoverySection}>
+              <Text style={styles.sectionLabel}>Find a task</Text>
+
+              <TextInput
+                value={searchTerm}
+                onChangeText={setSearchTerm}
+                placeholder="Search tasks..."
+                placeholderTextColor="#94a3b8"
+                style={styles.searchInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+            </View>
+
+            <View style={styles.filterSection}>
+              <Text style={styles.sectionLabel}>Status</Text>
+
+              <View style={styles.filterRow}>
+                <FilterButton
+                  label="All"
+                  active={statusFilter === "all"}
+                  onPress={() => setStatusFilter("all")}
+                />
+
+                <FilterButton
+                  label="To Do"
+                  active={statusFilter === "todo"}
+                  onPress={() => setStatusFilter("todo")}
+                />
+
+                <FilterButton
+                  label="In Progress"
+                  active={statusFilter === "in-progress"}
+                  onPress={() => setStatusFilter("in-progress")}
+                />
+
+                <FilterButton
+                  label="Done"
+                  active={statusFilter === "done"}
+                  onPress={() => setStatusFilter("done")}
+                />
+              </View>
+            </View>
+
+            {tasks.length > 0 && filteredTasks.length > 0 ? (
+              <Text style={styles.sectionTitle}>
+                {hasActiveFilters
+                  ? `${filteredTasks.length} matching ${
+                      filteredTasks.length === 1 ? "task" : "tasks"
+                    }`
+                  : "All tasks"}
+              </Text>
             ) : null}
           </View>
         }
         ListEmptyComponent={
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>No tasks yet</Text>
-            <Text style={styles.emptyText}>
-              Create your first task to start managing your work from mobile.
-            </Text>
-          </View>
+          tasks.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No tasks yet</Text>
+
+              <Text style={styles.emptyText}>
+                Create your first task to start managing your work from mobile.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No matching tasks</Text>
+
+              <Text style={styles.emptyText}>
+                Try a different search or status filter.
+              </Text>
+
+              <Pressable
+                style={styles.clearFiltersButton}
+                onPress={clearFilters}
+              >
+                <Text style={styles.clearFiltersText}>Clear filters</Text>
+              </Pressable>
+            </View>
+          )
         }
       />
 
@@ -344,14 +477,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8fafc",
   },
+
   listContent: {
     padding: 20,
     paddingTop: 32,
     paddingBottom: 32,
   },
+
   emptyListContent: {
     flexGrow: 1,
   },
+
   centered: {
     flex: 1,
     backgroundColor: "#f8fafc",
@@ -359,21 +495,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 20,
   },
+
   loadingText: {
     marginTop: 12,
     color: "#64748b",
     fontSize: 15,
   },
+
   header: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
     marginBottom: 20,
   },
+
   headerText: {
     flex: 1,
     paddingRight: 12,
   },
+
   eyebrow: {
     fontSize: 11,
     fontWeight: "700",
@@ -381,16 +521,19 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 4,
   },
+
   title: {
     fontSize: 30,
     fontWeight: "700",
     color: "#0f172a",
   },
+
   subtitle: {
     marginTop: 4,
     fontSize: 14,
     color: "#64748b",
   },
+
   logoutButton: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
@@ -399,10 +542,12 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     backgroundColor: "#ffffff",
   },
+
   logoutText: {
     color: "#334155",
     fontWeight: "600",
   },
+
   createButton: {
     minHeight: 52,
     borderRadius: 12,
@@ -411,21 +556,85 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 24,
   },
+
   createButtonText: {
     color: "#ffffff",
     fontSize: 16,
     fontWeight: "700",
   },
+
+  discoverySection: {
+    marginBottom: 16,
+  },
+
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#475569",
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+
+  searchInput: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 12,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 14,
+    color: "#0f172a",
+    fontSize: 15,
+  },
+
+  filterSection: {
+    marginBottom: 18,
+  },
+
+  filterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+
+  filterButton: {
+    minHeight: 40,
+    paddingHorizontal: 13,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  filterButtonActive: {
+    backgroundColor: "#2563eb",
+    borderColor: "#2563eb",
+  },
+
+  filterButtonText: {
+    color: "#475569",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+
+  filterButtonTextActive: {
+    color: "#ffffff",
+  },
+
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: "#0f172a",
     marginBottom: 12,
   },
+
   taskWrapper: {
     position: "relative",
     marginBottom: 12,
   },
+
   taskCard: {
     backgroundColor: "#ffffff",
     borderWidth: 1,
@@ -433,52 +642,58 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
   },
-  taskTopRow: {
-    flexDirection: "row",
-  },
+
   taskContent: {
     flex: 1,
   },
+
   taskTitle: {
     fontSize: 17,
     lineHeight: 24,
     fontWeight: "700",
     color: "#0f172a",
   },
+
   badgeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
     marginTop: 12,
   },
+
   statusBadge: {
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: "#eff6ff",
   },
+
   statusText: {
     fontSize: 12,
     fontWeight: "700",
     color: "#1d4ed8",
   },
+
   priorityBadge: {
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: "#f1f5f9",
   },
+
   priorityText: {
     fontSize: 12,
     fontWeight: "700",
     color: "#475569",
   },
+
   taskActions: {
     marginTop: 16,
     borderTopWidth: 1,
     borderTopColor: "#f1f5f9",
     paddingTop: 12,
   },
+
   secondaryAction: {
     minHeight: 42,
     borderRadius: 10,
@@ -488,16 +703,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   secondaryActionText: {
     color: "#334155",
     fontSize: 13,
     fontWeight: "600",
   },
+
   actionRow: {
     flexDirection: "row",
     gap: 8,
     marginTop: 8,
   },
+
   editButton: {
     flex: 1,
     minHeight: 42,
@@ -507,10 +725,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   editText: {
     color: "#334155",
     fontWeight: "700",
   },
+
   deleteButton: {
     flex: 1,
     minHeight: 42,
@@ -520,10 +740,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   deleteText: {
     color: "#b91c1c",
     fontWeight: "700",
   },
+
   busyOverlay: {
     position: "absolute",
     top: 0,
@@ -535,6 +757,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   emptyCard: {
     backgroundColor: "#ffffff",
     borderRadius: 16,
@@ -542,17 +765,35 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     padding: 24,
   },
+
   emptyTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: "#0f172a",
     marginBottom: 8,
   },
+
   emptyText: {
     fontSize: 14,
     lineHeight: 21,
     color: "#64748b",
   },
+
+  clearFiltersButton: {
+    alignSelf: "flex-start",
+    marginTop: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 9,
+    backgroundColor: "#eff6ff",
+  },
+
+  clearFiltersText: {
+    color: "#2563eb",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+
   errorCard: {
     backgroundColor: "#fef2f2",
     borderWidth: 1,
@@ -561,17 +802,20 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 16,
   },
+
   errorTitle: {
     fontSize: 15,
     fontWeight: "700",
     color: "#991b1b",
     marginBottom: 4,
   },
+
   errorText: {
     fontSize: 14,
     lineHeight: 20,
     color: "#b91c1c",
   },
+
   retryButton: {
     alignSelf: "flex-start",
     marginTop: 12,
@@ -582,10 +826,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#fecaca",
   },
+
   retryText: {
     color: "#991b1b",
     fontWeight: "700",
   },
+
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.45)",
@@ -593,6 +839,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 20,
   },
+
   confirmationCard: {
     width: "100%",
     maxWidth: 420,
@@ -600,22 +847,26 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 20,
   },
+
   confirmationTitle: {
     fontSize: 20,
     fontWeight: "700",
     color: "#0f172a",
     marginBottom: 8,
   },
+
   confirmationText: {
     fontSize: 15,
     lineHeight: 22,
     color: "#64748b",
   },
+
   confirmationActions: {
     flexDirection: "row",
     gap: 10,
     marginTop: 24,
   },
+
   cancelButton: {
     flex: 1,
     minHeight: 46,
@@ -625,11 +876,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   cancelButtonText: {
     color: "#334155",
     fontSize: 14,
     fontWeight: "700",
   },
+
   confirmDeleteButton: {
     flex: 1,
     minHeight: 46,
@@ -638,6 +891,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   confirmDeleteText: {
     color: "#ffffff",
     fontSize: 14,
