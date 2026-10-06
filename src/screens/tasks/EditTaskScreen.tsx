@@ -1,4 +1,6 @@
 import {
+  ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -8,7 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { getTasks, updateTask } from "../../api/tasks";
 import type { TaskPriority } from "../../types/task";
@@ -25,36 +27,53 @@ export default function EditTaskScreen({ navigation, route }: Props) {
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    async function loadTask() {
-      try {
-        const tasks = await getTasks();
-        const task = tasks.find((item) => item.id === taskId);
+  const loadTask = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError("");
+    setError("");
 
-        if (!task) {
-          setError("This task could not be found.");
-          return;
-        }
+    try {
+      const tasks = await getTasks();
+      const task = tasks.find((item) => item.id === taskId);
 
-        setTitle(task.title);
-        setPriority(task.priority);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load the task. Please try again.",
-        );
-      } finally {
-        setIsLoading(false);
+      if (!task) {
+        setLoadError("This task could not be found.");
+        return;
       }
-    }
 
-    void loadTask();
+      setTitle(task.title);
+      setPriority(task.priority);
+    } catch (err) {
+      setLoadError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load the task. Please try again.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
   }, [taskId]);
 
+  useEffect(() => {
+    void loadTask();
+  }, [loadTask]);
+
+  function handleTitleChange(value: string) {
+    setTitle(value);
+
+    if (error) {
+      setError("");
+    }
+  }
+
   async function handleSave() {
+    if (isSaving) {
+      return;
+    }
+
     const trimmedTitle = title.trim();
 
     if (!trimmedTitle) {
@@ -62,6 +81,7 @@ export default function EditTaskScreen({ navigation, route }: Props) {
       return;
     }
 
+    Keyboard.dismiss();
     setError("");
     setIsSaving(true);
 
@@ -83,28 +103,74 @@ export default function EditTaskScreen({ navigation, route }: Props) {
     }
   }
 
+  const keyboardBehavior =
+    Platform.OS === "ios"
+      ? "padding"
+      : Platform.OS === "android"
+        ? "height"
+        : undefined;
+
   if (isLoading) {
     return (
       <View style={styles.centered}>
+        <ActivityIndicator size="small" color="#2563eb" />
         <Text style={styles.loadingText}>Loading task...</Text>
       </View>
     );
   }
 
+  if (loadError) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorTitle}>Unable to load task</Text>
+        <Text style={styles.loadErrorText}>{loadError}</Text>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.retryButton,
+            pressed && styles.retryButtonPressed,
+          ]}
+          onPress={() => {
+            void loadTask();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading task"
+        >
+          <Text style={styles.retryButtonText}>Try again</Text>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.secondaryButton,
+            pressed && styles.secondaryButtonPressed,
+          ]}
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Text style={styles.secondaryButtonText}>Go back</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+    <KeyboardAvoidingView style={styles.container} behavior={keyboardBehavior}>
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
       >
         <View style={styles.header}>
           <Pressable
-            style={styles.backButton}
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed && styles.pressed,
+            ]}
             onPress={() => navigation.goBack()}
             disabled={isSaving}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
             <Text style={styles.backText}>‹</Text>
           </Pressable>
@@ -120,15 +186,30 @@ export default function EditTaskScreen({ navigation, route }: Props) {
 
           <TextInput
             value={title}
-            onChangeText={setTitle}
+            onChangeText={handleTitleChange}
             placeholder="Task title"
             placeholderTextColor="#94a3b8"
-            style={styles.input}
+            style={[styles.input, error && styles.inputError]}
             maxLength={120}
             editable={!isSaving}
+            autoCapitalize="sentences"
+            autoCorrect
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              void handleSave();
+            }}
+            accessibilityLabel="Task title"
+            accessibilityHint="Edit the title of the task"
           />
 
-          <Text style={styles.characterCount}>{title.length}/120</Text>
+          <Text
+            style={[
+              styles.characterCount,
+              title.length >= 110 && styles.characterCountWarning,
+            ]}
+          >
+            {title.length}/120
+          </Text>
 
           <Text style={[styles.label, styles.priorityLabel]}>Priority</Text>
 
@@ -139,12 +220,25 @@ export default function EditTaskScreen({ navigation, route }: Props) {
               return (
                 <Pressable
                   key={item}
-                  style={[
+                  style={({ pressed }) => [
                     styles.priorityButton,
                     selected && styles.priorityButtonSelected,
+                    pressed && styles.pressed,
                   ]}
-                  onPress={() => setPriority(item)}
+                  onPress={() => {
+                    setPriority(item);
+
+                    if (error) {
+                      setError("");
+                    }
+                  }}
                   disabled={isSaving}
+                  accessibilityRole="radio"
+                  accessibilityState={{
+                    checked: selected,
+                    disabled: isSaving,
+                  }}
+                  accessibilityLabel={`${item} priority`}
                 >
                   <Text
                     style={[
@@ -159,19 +253,38 @@ export default function EditTaskScreen({ navigation, route }: Props) {
             })}
           </View>
 
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {error ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
 
           <Pressable
-            style={[
+            style={({ pressed }) => [
               styles.submitButton,
               isSaving && styles.submitButtonDisabled,
+              pressed && !isSaving && styles.submitButtonPressed,
             ]}
-            onPress={handleSave}
+            onPress={() => {
+              void handleSave();
+            }}
             disabled={isSaving}
+            accessibilityRole="button"
+            accessibilityLabel="Save changes"
+            accessibilityState={{ disabled: isSaving }}
           >
-            <Text style={styles.submitText}>
-              {isSaving ? "Saving..." : "Save changes"}
-            </Text>
+            {isSaving ? (
+              <>
+                <ActivityIndicator
+                  size="small"
+                  color="#ffffff"
+                  style={styles.buttonSpinner}
+                />
+                <Text style={styles.submitText}>Saving...</Text>
+              </>
+            ) : (
+              <Text style={styles.submitText}>Save changes</Text>
+            )}
           </Pressable>
         </View>
       </ScrollView>
@@ -187,6 +300,7 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     padding: 20,
+    paddingBottom: 40,
   },
   centered: {
     flex: 1,
@@ -196,8 +310,61 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   loadingText: {
+    marginTop: 10,
     fontSize: 15,
     color: "#64748b",
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#0f172a",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  loadErrorText: {
+    maxWidth: 340,
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#64748b",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  retryButton: {
+    minHeight: 48,
+    minWidth: 150,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: "#2563eb",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  retryButtonPressed: {
+    opacity: 0.85,
+  },
+  retryButtonText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  secondaryButton: {
+    minHeight: 48,
+    minWidth: 150,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+  },
+  secondaryButtonPressed: {
+    opacity: 0.75,
+  },
+  secondaryButtonText: {
+    color: "#334155",
+    fontSize: 15,
+    fontWeight: "700",
   },
   header: {
     flexDirection: "row",
@@ -259,11 +426,17 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     backgroundColor: "#ffffff",
   },
+  inputError: {
+    borderColor: "#dc2626",
+  },
   characterCount: {
     textAlign: "right",
     marginTop: 6,
     fontSize: 12,
     color: "#94a3b8",
+  },
+  characterCountWarning: {
+    color: "#b45309",
   },
   priorityLabel: {
     marginTop: 24,
@@ -294,8 +467,16 @@ const styles = StyleSheet.create({
   priorityTextSelected: {
     color: "#1d4ed8",
   },
-  errorText: {
+  errorContainer: {
     marginTop: 16,
+    borderRadius: 10,
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  errorText: {
     color: "#b91c1c",
     fontSize: 14,
     lineHeight: 20,
@@ -306,14 +487,24 @@ const styles = StyleSheet.create({
     backgroundColor: "#2563eb",
     alignItems: "center",
     justifyContent: "center",
+    flexDirection: "row",
     marginTop: 20,
   },
   submitButtonDisabled: {
     opacity: 0.6,
   },
+  submitButtonPressed: {
+    opacity: 0.85,
+  },
   submitText: {
     color: "#ffffff",
     fontSize: 16,
     fontWeight: "700",
+  },
+  buttonSpinner: {
+    marginRight: 8,
+  },
+  pressed: {
+    opacity: 0.75,
   },
 });

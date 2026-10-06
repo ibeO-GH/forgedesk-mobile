@@ -1,4 +1,6 @@
 import {
+  ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -24,7 +26,19 @@ export default function CreateTaskScreen({ navigation }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  function handleTitleChange(value: string) {
+    setTitle(value);
+
+    if (error) {
+      setError("");
+    }
+  }
+
   async function handleCreateTask() {
+    if (isSubmitting) {
+      return;
+    }
+
     const trimmedTitle = title.trim();
 
     if (!trimmedTitle) {
@@ -32,6 +46,7 @@ export default function CreateTaskScreen({ navigation }: Props) {
       return;
     }
 
+    Keyboard.dismiss();
     setError("");
     setIsSubmitting(true);
 
@@ -49,20 +64,30 @@ export default function CreateTaskScreen({ navigation }: Props) {
     }
   }
 
+  const keyboardBehavior =
+    Platform.OS === "ios"
+      ? "padding"
+      : Platform.OS === "android"
+        ? "height"
+        : undefined;
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+    <KeyboardAvoidingView style={styles.container} behavior={keyboardBehavior}>
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
       >
         <View style={styles.header}>
           <Pressable
-            style={styles.backButton}
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed && styles.pressed,
+            ]}
             onPress={() => navigation.goBack()}
             disabled={isSubmitting}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
             <Text style={styles.backText}>‹</Text>
           </Pressable>
@@ -78,16 +103,31 @@ export default function CreateTaskScreen({ navigation }: Props) {
 
           <TextInput
             value={title}
-            onChangeText={setTitle}
+            onChangeText={handleTitleChange}
             placeholder="What needs to be done?"
             placeholderTextColor="#94a3b8"
-            style={styles.input}
+            style={[styles.input, error && styles.inputError]}
             maxLength={120}
             editable={!isSubmitting}
             autoFocus
+            autoCapitalize="sentences"
+            autoCorrect
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              void handleCreateTask();
+            }}
+            accessibilityLabel="Task title"
+            accessibilityHint="Enter the title of the task"
           />
 
-          <Text style={styles.characterCount}>{title.length}/120</Text>
+          <Text
+            style={[
+              styles.characterCount,
+              title.length >= 110 && styles.characterCountWarning,
+            ]}
+          >
+            {title.length}/120
+          </Text>
 
           <Text style={[styles.label, styles.priorityLabel]}>Priority</Text>
 
@@ -98,12 +138,25 @@ export default function CreateTaskScreen({ navigation }: Props) {
               return (
                 <Pressable
                   key={item}
-                  style={[
+                  style={({ pressed }) => [
                     styles.priorityButton,
                     selected && styles.priorityButtonSelected,
+                    pressed && styles.pressed,
                   ]}
-                  onPress={() => setPriority(item)}
+                  onPress={() => {
+                    setPriority(item);
+
+                    if (error) {
+                      setError("");
+                    }
+                  }}
                   disabled={isSubmitting}
+                  accessibilityRole="radio"
+                  accessibilityState={{
+                    checked: selected,
+                    disabled: isSubmitting,
+                  }}
+                  accessibilityLabel={`${item} priority`}
                 >
                   <Text
                     style={[
@@ -118,19 +171,38 @@ export default function CreateTaskScreen({ navigation }: Props) {
             })}
           </View>
 
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {error ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
 
           <Pressable
-            style={[
+            style={({ pressed }) => [
               styles.submitButton,
               isSubmitting && styles.submitButtonDisabled,
+              pressed && !isSubmitting && styles.submitButtonPressed,
             ]}
-            onPress={handleCreateTask}
+            onPress={() => {
+              void handleCreateTask();
+            }}
             disabled={isSubmitting}
+            accessibilityRole="button"
+            accessibilityLabel="Create task"
+            accessibilityState={{ disabled: isSubmitting }}
           >
-            <Text style={styles.submitText}>
-              {isSubmitting ? "Creating..." : "Create task"}
-            </Text>
+            {isSubmitting ? (
+              <>
+                <ActivityIndicator
+                  size="small"
+                  color="#ffffff"
+                  style={styles.buttonSpinner}
+                />
+                <Text style={styles.submitText}>Creating...</Text>
+              </>
+            ) : (
+              <Text style={styles.submitText}>Create task</Text>
+            )}
           </Pressable>
         </View>
       </ScrollView>
@@ -146,6 +218,7 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     padding: 20,
+    paddingBottom: 40,
   },
   header: {
     flexDirection: "row",
@@ -207,11 +280,17 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     backgroundColor: "#ffffff",
   },
+  inputError: {
+    borderColor: "#dc2626",
+  },
   characterCount: {
     textAlign: "right",
     marginTop: 6,
     fontSize: 12,
     color: "#94a3b8",
+  },
+  characterCountWarning: {
+    color: "#b45309",
   },
   priorityLabel: {
     marginTop: 24,
@@ -242,8 +321,16 @@ const styles = StyleSheet.create({
   priorityTextSelected: {
     color: "#1d4ed8",
   },
-  errorText: {
+  errorContainer: {
     marginTop: 16,
+    borderRadius: 10,
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  errorText: {
     color: "#b91c1c",
     fontSize: 14,
     lineHeight: 20,
@@ -254,14 +341,24 @@ const styles = StyleSheet.create({
     backgroundColor: "#2563eb",
     alignItems: "center",
     justifyContent: "center",
+    flexDirection: "row",
     marginTop: 20,
   },
   submitButtonDisabled: {
     opacity: 0.6,
   },
+  submitButtonPressed: {
+    opacity: 0.85,
+  },
   submitText: {
     color: "#ffffff",
     fontSize: 16,
     fontWeight: "700",
+  },
+  buttonSpinner: {
+    marginRight: 8,
+  },
+  pressed: {
+    opacity: 0.75,
   },
 });
