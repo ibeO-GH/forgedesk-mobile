@@ -7,6 +7,7 @@ import DashboardScreen from "../screens/tasks/DashboardScreen";
 import CreateTaskScreen from "../screens/tasks/CreateTaskScreen";
 import EditTaskScreen from "../screens/tasks/EditTaskScreen";
 import TaskDetailsScreen from "../screens/tasks/TaskDetailsScreen";
+import { ActivityIndicator, Text, View } from "react-native";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -24,7 +25,25 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function AppNavigator() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "#f8fafc",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <ActivityIndicator size="large" color="#2563eb" />
+        <Text style={{ marginTop: 12, color: "#64748b", fontSize: 15 }}>
+          Loading ForgeDesk...
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <NavigationContainer>

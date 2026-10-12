@@ -60,11 +60,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   async function loginUser(authUser: AuthUser, authToken: string) {
-    setUser(authUser);
-    setToken(authToken);
-
-    await AsyncStorage.setItem("forgedesk_user", JSON.stringify(authUser));
     await AsyncStorage.setItem("forgedesk_token", authToken);
+    await AsyncStorage.setItem("forgedesk_user", JSON.stringify(authUser));
+
+    setToken(authToken);
+    setUser(authUser);
   }
 
   async function logout() {
