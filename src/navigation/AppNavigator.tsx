@@ -1,5 +1,6 @@
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "../context/AuthContext";
 import LoginScreen from "../screens/auth/LoginScreen";
 import RegisterScreen from "../screens/auth/RegisterScreen";
@@ -7,7 +8,7 @@ import DashboardScreen from "../screens/tasks/DashboardScreen";
 import CreateTaskScreen from "../screens/tasks/CreateTaskScreen";
 import EditTaskScreen from "../screens/tasks/EditTaskScreen";
 import TaskDetailsScreen from "../screens/tasks/TaskDetailsScreen";
-import { ActivityIndicator, Text, View } from "react-native";
+import { theme } from "../theme";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -29,18 +30,9 @@ export default function AppNavigator() {
 
   if (isLoading) {
     return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "#f8fafc",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={{ marginTop: 12, color: "#64748b", fontSize: 15 }}>
-          Loading ForgeDesk...
-        </Text>
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.loadingText}>Loading ForgeDesk...</Text>
       </View>
     );
   }
@@ -51,8 +43,9 @@ export default function AppNavigator() {
         screenOptions={{
           headerShown: false,
           contentStyle: {
-            backgroundColor: "#f8fafc",
+            backgroundColor: theme.colors.background,
           },
+          animation: "slide_from_right",
         }}
       >
         {user ? (
@@ -72,3 +65,17 @@ export default function AppNavigator() {
     </NavigationContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    marginTop: 12,
+    color: theme.colors.textSecondary,
+    fontSize: 14,
+  },
+});

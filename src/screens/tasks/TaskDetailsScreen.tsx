@@ -13,6 +13,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { deleteTask, getTasks, updateTaskStatus } from "../../api/tasks";
 import type { Task } from "../../types/task";
 import type { RootStackParamList } from "../../navigation/AppNavigator";
+import { theme } from "../../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "TaskDetails">;
 
@@ -29,15 +30,33 @@ const PRIORITY_LABELS: Record<Task["priority"], string> = {
 };
 
 function getNextStatus(status: Task["status"]): Task["status"] {
-  if (status === "todo") {
-    return "in-progress";
+  if (status === "todo") return "in-progress";
+  if (status === "in-progress") return "done";
+  return "todo";
+}
+
+function getStatusColors(status: Task["status"]) {
+  if (status === "done") {
+    return { background: "#DCFCE7", text: "#15803D" };
   }
 
   if (status === "in-progress") {
-    return "done";
+    return { background: "#EDE9FE", text: "#6D28D9" };
   }
 
-  return "todo";
+  return { background: "#EFF6FF", text: "#2563EB" };
+}
+
+function getPriorityColors(priority: Task["priority"]) {
+  if (priority === "high") {
+    return { background: "#FEF2F2", text: "#B91C1C" };
+  }
+
+  if (priority === "medium") {
+    return { background: "#FEF3C7", text: "#92400E" };
+  }
+
+  return { background: "#DCFCE7", text: "#166534" };
 }
 
 export default function TaskDetailsScreen({ navigation, route }: Props) {
@@ -62,10 +81,9 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
       if (!currentTask) {
         setTask(null);
         setError("This task could not be found.");
-        return;
+      } else {
+        setTask(currentTask);
       }
-
-      setTask(currentTask);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Unable to load this task.",
@@ -82,49 +100,28 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
   );
 
   async function handleStatusChange() {
-    if (!task) {
-      return;
-    }
+    if (!task || busyAction) return;
 
     setBusyAction("status");
     setError("");
 
     try {
-      const nextStatus = getNextStatus(task.status);
-
-      const updatedTask = await updateTaskStatus(task.id, nextStatus);
-
+      const updatedTask = await updateTaskStatus(
+        task.id,
+        getNextStatus(task.status),
+      );
       setTask(updatedTask);
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to update the task status.",
+        err instanceof Error ? err.message : "Unable to update task status.",
       );
     } finally {
       setBusyAction(null);
     }
   }
 
-  function handleDeletePress() {
-    if (!task || busyAction !== null) {
-      return;
-    }
-
-    setError("");
-    setShowDeleteConfirmation(true);
-  }
-
-  function cancelDelete() {
-    if (busyAction === null) {
-      setShowDeleteConfirmation(false);
-    }
-  }
-
   async function confirmDelete() {
-    if (!task) {
-      return;
-    }
+    if (!task || busyAction) return;
 
     setShowDeleteConfirmation(false);
     setBusyAction("delete");
@@ -134,9 +131,7 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
       await deleteTask(task.id);
       navigation.goBack();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to delete the task.",
-      );
+      setError(err instanceof Error ? err.message : "Unable to delete task.");
       setBusyAction(null);
     }
   }
@@ -144,8 +139,8 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
   if (isLoading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={styles.loadingText}>Loading task...</Text>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.loadingText}>Loading task details...</Text>
       </View>
     );
   }
@@ -154,11 +149,9 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
     return (
       <View style={styles.centered}>
         <Text style={styles.errorTitle}>Task unavailable</Text>
-
         <Text style={styles.errorText}>
           {error || "This task could not be loaded."}
         </Text>
-
         <Pressable
           style={styles.primaryButton}
           onPress={() => navigation.goBack()}
@@ -169,48 +162,60 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
     );
   }
 
+  const statusColors = getStatusColors(task.status);
+  const priorityColors = getPriorityColors(task.priority);
   const nextStatus = getNextStatus(task.status);
 
   return (
     <View style={styles.screen}>
-      <ScrollView
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-      >
+      <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
           <Pressable
             style={styles.backButton}
             onPress={() => navigation.goBack()}
             disabled={busyAction !== null}
           >
-            <Text style={styles.backButtonText}>‹</Text>
+            <Text style={styles.backText}>‹</Text>
           </Pressable>
 
-          <View style={styles.headerText}>
-            <Text style={styles.eyebrow}>TASK DETAILS</Text>
-            <Text style={styles.headerTitle}>Task</Text>
+          <View style={styles.headerCopy}>
+            <Text style={styles.eyebrow}>FORGEDESK / TASKS</Text>
+            <Text style={styles.headerTitle}>Task details</Text>
           </View>
         </View>
 
-        <View style={styles.card}>
+        <View style={styles.taskCard}>
+          <Text style={styles.cardEyebrow}>TASK</Text>
           <Text style={styles.taskTitle}>{task.title}</Text>
 
-          <View style={styles.metaRow}>
-            <View style={styles.metaBlock}>
-              <Text style={styles.metaLabel}>STATUS</Text>
+          <View style={styles.divider} />
 
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>
+          <View style={styles.metadataRow}>
+            <View style={styles.metadataBlock}>
+              <Text style={styles.metadataLabel}>STATUS</Text>
+              <View
+                style={[
+                  styles.badge,
+                  { backgroundColor: statusColors.background },
+                ]}
+              >
+                <Text style={[styles.badgeText, { color: statusColors.text }]}>
                   {STATUS_LABELS[task.status]}
                 </Text>
               </View>
             </View>
 
-            <View style={styles.metaBlock}>
-              <Text style={styles.metaLabel}>PRIORITY</Text>
-
-              <View style={styles.priorityBadge}>
-                <Text style={styles.priorityBadgeText}>
+            <View style={styles.metadataBlock}>
+              <Text style={styles.metadataLabel}>PRIORITY</Text>
+              <View
+                style={[
+                  styles.badge,
+                  { backgroundColor: priorityColors.background },
+                ]}
+              >
+                <Text
+                  style={[styles.badgeText, { color: priorityColors.text }]}
+                >
                   {PRIORITY_LABELS[task.priority]}
                 </Text>
               </View>
@@ -220,49 +225,46 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
 
         {error ? (
           <View style={styles.errorBox}>
-            <Text style={styles.errorBoxText}>{error}</Text>
+            <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
 
         <View style={styles.actionsCard}>
-          <Text style={styles.sectionTitle}>Actions</Text>
+          <Text style={styles.sectionTitle}>Manage task</Text>
+          <Text style={styles.sectionSubtitle}>
+            Update the progress or make changes to this task.
+          </Text>
 
           <Pressable
             style={styles.primaryAction}
-            onPress={handleStatusChange}
+            onPress={() => void handleStatusChange()}
             disabled={busyAction !== null}
           >
             {busyAction === "status" ? (
-              <ActivityIndicator color="#ffffff" />
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text style={styles.primaryActionText}>
-                Move to {STATUS_LABELS[nextStatus]}
+                {task.status === "done"
+                  ? "Reopen task"
+                  : `Move to ${STATUS_LABELS[nextStatus]}`}
               </Text>
             )}
           </Pressable>
 
           <Pressable
             style={styles.secondaryAction}
-            onPress={() =>
-              navigation.navigate("EditTask", {
-                taskId: task.id,
-              })
-            }
+            onPress={() => navigation.navigate("EditTask", { taskId: task.id })}
             disabled={busyAction !== null}
           >
-            <Text style={styles.secondaryActionText}>Edit task</Text>
+            <Text style={styles.secondaryActionText}>Edit task details</Text>
           </Pressable>
 
           <Pressable
             style={styles.deleteAction}
-            onPress={handleDeletePress}
+            onPress={() => setShowDeleteConfirmation(true)}
             disabled={busyAction !== null}
           >
-            {busyAction === "delete" ? (
-              <ActivityIndicator color="#dc2626" />
-            ) : (
-              <Text style={styles.deleteActionText}>Delete task</Text>
-            )}
+            <Text style={styles.deleteActionText}>Delete task</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -271,20 +273,19 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
         visible={showDeleteConfirmation}
         transparent
         animationType="fade"
-        onRequestClose={cancelDelete}
+        onRequestClose={() => setShowDeleteConfirmation(false)}
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.confirmationCard}>
-            <Text style={styles.confirmationTitle}>Delete task?</Text>
-
+            <Text style={styles.confirmationTitle}>Delete this task?</Text>
             <Text style={styles.confirmationText}>
-              {`Delete "${task.title}"? This action cannot be undone.`}
+              "{task.title}" will be permanently removed.
             </Text>
 
             <View style={styles.confirmationActions}>
               <Pressable
                 style={styles.cancelButton}
-                onPress={cancelDelete}
+                onPress={() => setShowDeleteConfirmation(false)}
                 disabled={busyAction !== null}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -295,7 +296,7 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
                 onPress={() => void confirmDelete()}
                 disabled={busyAction !== null}
               >
-                <Text style={styles.confirmDeleteText}>Delete</Text>
+                <Text style={styles.confirmDeleteText}>Delete task</Text>
               </Pressable>
             </View>
           </View>
@@ -308,305 +309,251 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: theme.colors.background,
   },
-
-  container: {
-    flexGrow: 1,
+  content: {
     padding: 20,
+    paddingTop: 30,
     paddingBottom: 40,
   },
-
   centered: {
     flex: 1,
+    backgroundColor: theme.colors.background,
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
-    backgroundColor: "#f8fafc",
   },
-
   loadingText: {
+    color: theme.colors.textSecondary,
     marginTop: 12,
-    color: "#64748b",
-    fontSize: 14,
   },
-
+  errorTitle: {
+    color: theme.colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+    marginBottom: 8,
+  },
+  errorText: {
+    color: theme.colors.danger,
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: "center",
+    marginBottom: 18,
+  },
+  primaryButton: {
+    minHeight: 48,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "800",
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 12,
     marginBottom: 24,
   },
-
   backButton: {
     width: 44,
     height: 44,
-    borderRadius: 12,
+    borderRadius: 14,
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#ffffff",
+    borderColor: theme.colors.border,
     alignItems: "center",
     justifyContent: "center",
+    marginRight: 13,
   },
-
-  backButtonText: {
-    color: "#0f172a",
+  backText: {
     fontSize: 30,
     lineHeight: 32,
+    color: theme.colors.text,
   },
-
-  headerText: {
-    marginLeft: 12,
-  },
-
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#2563eb",
-    letterSpacing: 1,
-    marginBottom: 3,
-  },
-
-  headerTitle: {
-    fontSize: 26,
-    fontWeight: "700",
-    color: "#0f172a",
-  },
-
-  card: {
-    backgroundColor: "#ffffff",
-    borderRadius: 18,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-
-  taskTitle: {
-    fontSize: 24,
-    lineHeight: 32,
-    fontWeight: "700",
-    color: "#0f172a",
-  },
-
-  metaRow: {
-    flexDirection: "row",
-    gap: 28,
-    marginTop: 28,
-  },
-
-  metaBlock: {
+  headerCopy: {
     flex: 1,
   },
-
-  metaLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#94a3b8",
+  eyebrow: {
+    color: theme.colors.primary,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    marginBottom: 4,
+  },
+  headerTitle: {
+    color: theme.colors.text,
+    fontSize: 26,
+    fontWeight: "900",
+  },
+  taskCard: {
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 20,
+    padding: 20,
+  },
+  cardEyebrow: {
+    color: theme.colors.muted,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1,
+    marginBottom: 10,
+  },
+  taskTitle: {
+    color: theme.colors.text,
+    fontSize: 21,
+    lineHeight: 29,
+    fontWeight: "900",
+  },
+  divider: {
+    height: 1,
+    backgroundColor: theme.colors.divider,
+    marginVertical: 20,
+  },
+  metadataRow: {
+    flexDirection: "row",
+    gap: 35,
+  },
+  metadataBlock: {
+    alignItems: "flex-start",
+  },
+  metadataLabel: {
+    color: theme.colors.muted,
+    fontSize: 10,
+    fontWeight: "900",
     letterSpacing: 0.8,
     marginBottom: 8,
   },
-
-  statusBadge: {
-    alignSelf: "flex-start",
-    backgroundColor: "#dbeafe",
-    borderRadius: 8,
-    paddingHorizontal: 10,
+  badge: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
     paddingVertical: 7,
   },
-
-  statusBadgeText: {
-    color: "#1d4ed8",
-    fontSize: 13,
-    fontWeight: "700",
+  badgeText: {
+    fontSize: 12,
+    fontWeight: "800",
   },
-
-  priorityBadge: {
-    alignSelf: "flex-start",
-    backgroundColor: "#fef3c7",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-
-  priorityBadgeText: {
-    color: "#92400e",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-
   errorBox: {
-    marginTop: 16,
-    backgroundColor: "#fef2f2",
-    borderWidth: 1,
-    borderColor: "#fecaca",
+    backgroundColor: theme.colors.dangerSoft,
     borderRadius: 12,
-    padding: 14,
+    padding: 13,
+    marginTop: 15,
   },
-
-  errorBoxText: {
-    color: "#b91c1c",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-
   actionsCard: {
-    marginTop: 16,
-    backgroundColor: "#ffffff",
-    borderRadius: 18,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 20,
     padding: 20,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
+    marginTop: 18,
   },
-
   sectionTitle: {
+    color: theme.colors.text,
     fontSize: 17,
-    fontWeight: "700",
-    color: "#0f172a",
-    marginBottom: 16,
+    fontWeight: "900",
   },
-
+  sectionSubtitle: {
+    color: theme.colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 5,
+    marginBottom: 18,
+  },
   primaryAction: {
-    minHeight: 48,
-    borderRadius: 10,
-    backgroundColor: "#2563eb",
+    minHeight: 51,
+    borderRadius: 12,
+    backgroundColor: theme.colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 16,
   },
-
   primaryActionText: {
-    color: "#ffffff",
+    color: "#FFFFFF",
+    fontWeight: "800",
     fontSize: 14,
-    fontWeight: "700",
   },
-
   secondaryAction: {
-    minHeight: 48,
-    borderRadius: 10,
+    minHeight: 49,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#ffffff",
+    borderColor: theme.colors.border,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 16,
     marginTop: 10,
   },
-
   secondaryActionText: {
-    color: "#334155",
+    color: theme.colors.text,
+    fontWeight: "800",
     fontSize: 14,
-    fontWeight: "700",
   },
-
   deleteAction: {
     minHeight: 48,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#fecaca",
-    backgroundColor: "#fffafa",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 16,
-    marginTop: 10,
+    marginTop: 8,
   },
-
   deleteActionText: {
-    color: "#dc2626",
-    fontSize: 14,
-    fontWeight: "700",
+    color: theme.colors.danger,
+    fontWeight: "800",
+    fontSize: 13,
   },
-
-  errorTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#0f172a",
-    marginBottom: 8,
-  },
-
-  errorText: {
-    color: "#64748b",
-    textAlign: "center",
-    lineHeight: 21,
-    marginBottom: 20,
-  },
-
-  primaryButton: {
-    minHeight: 46,
-    borderRadius: 10,
-    paddingHorizontal: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#2563eb",
-  },
-
-  primaryButtonText: {
-    color: "#ffffff",
-    fontWeight: "700",
-  },
-
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.45)",
+    backgroundColor: "rgba(15,23,42,0.48)",
     alignItems: "center",
     justifyContent: "center",
-    padding: 20,
+    padding: 22,
   },
-
   confirmationCard: {
     width: "100%",
-    maxWidth: 420,
-    backgroundColor: "#ffffff",
-    borderRadius: 18,
-    padding: 20,
+    maxWidth: 400,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 20,
+    padding: 22,
   },
-
   confirmationTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#0f172a",
-    marginBottom: 8,
+    color: theme.colors.text,
+    fontSize: 19,
+    fontWeight: "900",
   },
-
   confirmationText: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: "#64748b",
+    color: theme.colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 8,
   },
-
   confirmationActions: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 24,
+    gap: 9,
+    marginTop: 23,
   },
-
   cancelButton: {
     flex: 1,
     minHeight: 46,
-    borderRadius: 10,
+    borderRadius: 11,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
+    borderColor: theme.colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
-
   cancelButtonText: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "700",
+    color: theme.colors.text,
+    fontWeight: "800",
+    fontSize: 12,
   },
-
   confirmDeleteButton: {
     flex: 1,
     minHeight: 46,
-    borderRadius: 10,
-    backgroundColor: "#dc2626",
+    borderRadius: 11,
+    backgroundColor: theme.colors.danger,
     alignItems: "center",
     justifyContent: "center",
   },
-
   confirmDeleteText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "700",
+    color: "#FFFFFF",
+    fontWeight: "800",
+    fontSize: 12,
   },
 });

@@ -16,9 +16,9 @@ import { deleteTask, getTasks, updateTaskStatus } from "../../api/tasks";
 import type { Task, TaskStatus } from "../../types/task";
 import { useAuth } from "../../context/AuthContext";
 import type { RootStackParamList } from "../../navigation/AppNavigator";
+import { theme } from "../../theme";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
-
 type StatusFilter = "all" | TaskStatus;
 
 const statusLabels: Record<TaskStatus, string> = {
@@ -34,15 +34,56 @@ const priorityLabels = {
 } as const;
 
 function getNextStatus(status: TaskStatus): TaskStatus {
-  if (status === "todo") {
-    return "in-progress";
+  if (status === "todo") return "in-progress";
+  if (status === "in-progress") return "done";
+  return "todo";
+}
+
+function getStatusColors(status: TaskStatus) {
+  if (status === "done") {
+    return { background: theme.colors.successSoft, text: theme.colors.success };
   }
 
   if (status === "in-progress") {
-    return "done";
+    return { background: "#EDE9FE", text: "#6D28D9" };
   }
 
-  return "todo";
+  return { background: theme.colors.primarySoft, text: theme.colors.primary };
+}
+
+function getPriorityColors(priority: Task["priority"]) {
+  if (priority === "high") {
+    return { background: theme.colors.dangerSoft, text: "#B91C1C" };
+  }
+
+  if (priority === "medium") {
+    return { background: theme.colors.warningSoft, text: "#92400E" };
+  }
+
+  return { background: theme.colors.successSoft, text: "#166534" };
+}
+
+function SummaryCard({
+  label,
+  count,
+  color,
+  background,
+}: {
+  label: string;
+  count: number;
+  color: string;
+  background: string;
+}) {
+  return (
+    <View style={styles.summaryCard}>
+      <View style={[styles.summaryIndicator, { backgroundColor: color }]} />
+      <Text style={styles.summaryCount}>{count}</Text>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <View style={[styles.summaryIcon, { backgroundColor: background }]}>
+        <View style={[styles.summaryIconDot, { backgroundColor: color }]} />
+      </View>
+    </View>
+  );
 }
 
 function FilterButton({
@@ -73,52 +114,86 @@ function FilterButton({
 
 function TaskCard({
   task,
+  busy,
   onOpen,
   onEdit,
   onStatusChange,
   onDelete,
 }: {
   task: Task;
+  busy: boolean;
   onOpen: () => void;
   onEdit: () => void;
   onStatusChange: () => void;
   onDelete: () => void;
 }) {
+  const statusColors = getStatusColors(task.status);
+  const priorityColors = getPriorityColors(task.priority);
+
   return (
     <View style={styles.taskCard}>
-      <Pressable style={styles.taskContent} onPress={onOpen}>
-        <Text style={styles.taskTitle}>{task.title}</Text>
+      <Pressable onPress={onOpen} style={styles.taskMain}>
+        <View style={styles.taskTitleRow}>
+          <View style={styles.taskAccent} />
+          <Text style={styles.taskTitle}>{task.title}</Text>
+        </View>
 
         <View style={styles.badgeRow}>
-          <View style={styles.statusBadge}>
-            <Text style={styles.statusText}>{statusLabels[task.status]}</Text>
+          <View
+            style={[styles.badge, { backgroundColor: statusColors.background }]}
+          >
+            <Text style={[styles.badgeText, { color: statusColors.text }]}>
+              {statusLabels[task.status]}
+            </Text>
           </View>
 
-          <View style={styles.priorityBadge}>
-            <Text style={styles.priorityText}>
+          <View
+            style={[
+              styles.badge,
+              { backgroundColor: priorityColors.background },
+            ]}
+          >
+            <Text style={[styles.badgeText, { color: priorityColors.text }]}>
               {priorityLabels[task.priority]}
             </Text>
           </View>
         </View>
       </Pressable>
 
-      <View style={styles.taskActions}>
-        <Pressable style={styles.secondaryAction} onPress={onStatusChange}>
-          <Text style={styles.secondaryActionText}>
-            Move to {statusLabels[getNextStatus(task.status)]}
-          </Text>
+      <View style={styles.taskDivider} />
+
+      <Pressable
+        style={styles.statusAction}
+        onPress={onStatusChange}
+        disabled={busy}
+      >
+        <Text style={styles.statusActionText}>
+          {task.status === "done"
+            ? "Reopen task"
+            : `Move to ${statusLabels[getNextStatus(task.status)]}`}
+        </Text>
+        <Text style={styles.actionArrow}>›</Text>
+      </Pressable>
+
+      <View style={styles.taskActionRow}>
+        <Pressable style={styles.editButton} onPress={onEdit} disabled={busy}>
+          <Text style={styles.editButtonText}>Edit</Text>
         </Pressable>
 
-        <View style={styles.actionRow}>
-          <Pressable style={styles.editButton} onPress={onEdit}>
-            <Text style={styles.editText}>Edit</Text>
-          </Pressable>
-
-          <Pressable style={styles.deleteButton} onPress={onDelete}>
-            <Text style={styles.deleteText}>Delete</Text>
-          </Pressable>
-        </View>
+        <Pressable
+          style={styles.deleteButton}
+          onPress={onDelete}
+          disabled={busy}
+        >
+          <Text style={styles.deleteButtonText}>Delete</Text>
+        </Pressable>
       </View>
+
+      {busy ? (
+        <View style={styles.busyOverlay}>
+          <ActivityIndicator color={theme.colors.primary} />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -130,7 +205,6 @@ export default function DashboardScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -138,11 +212,8 @@ export default function DashboardScreen() {
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
 
   const loadTasks = useCallback(async (refresh = false) => {
-    if (refresh) {
-      setIsRefreshing(true);
-    } else {
-      setIsLoading(true);
-    }
+    if (refresh) setIsRefreshing(true);
+    else setIsLoading(true);
 
     setError("");
 
@@ -167,12 +238,21 @@ export default function DashboardScreen() {
     }, [loadTasks]),
   );
 
+  const counts = useMemo(
+    () => ({
+      todo: tasks.filter((task) => task.status === "todo").length,
+      inProgress: tasks.filter((task) => task.status === "in-progress").length,
+      done: tasks.filter((task) => task.status === "done").length,
+    }),
+    [tasks],
+  );
+
   const filteredTasks = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
     return tasks.filter((task) => {
       const matchesSearch =
-        normalizedSearch.length === 0 ||
+        !normalizedSearch ||
         task.title.toLowerCase().includes(normalizedSearch);
 
       const matchesStatus =
@@ -186,55 +266,42 @@ export default function DashboardScreen() {
     searchTerm.trim().length > 0 || statusFilter !== "all";
 
   async function handleStatusChange(task: Task) {
-    const nextStatus = getNextStatus(task.status);
-
     setBusyTaskId(task.id);
     setError("");
 
     try {
-      const updatedTask = await updateTaskStatus(task.id, nextStatus);
+      const updatedTask = await updateTaskStatus(
+        task.id,
+        getNextStatus(task.status),
+      );
 
-      setTasks((currentTasks) =>
-        currentTasks.map((item) =>
+      setTasks((current) =>
+        current.map((item) =>
           item.id === updatedTask.id ? updatedTask : item,
         ),
       );
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to update the task status.",
+        err instanceof Error ? err.message : "Unable to update task status.",
       );
     } finally {
       setBusyTaskId(null);
     }
   }
 
-  function handleDelete(task: Task) {
-    setTaskToDelete(task);
-  }
-
   async function confirmDelete() {
-    if (!taskToDelete) {
-      return;
-    }
+    if (!taskToDelete) return;
 
     const taskId = taskToDelete.id;
-
     setTaskToDelete(null);
     setBusyTaskId(taskId);
     setError("");
 
     try {
       await deleteTask(taskId);
-
-      setTasks((currentTasks) =>
-        currentTasks.filter((item) => item.id !== taskId),
-      );
+      setTasks((current) => current.filter((item) => item.id !== taskId));
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to delete the task.",
-      );
+      setError(err instanceof Error ? err.message : "Unable to delete task.");
     } finally {
       setBusyTaskId(null);
     }
@@ -245,60 +312,20 @@ export default function DashboardScreen() {
     setStatusFilter("all");
   }
 
-  function renderTask({ item }: { item: Task }) {
-    const isBusy = busyTaskId === item.id;
-
-    return (
-      <View style={styles.taskWrapper}>
-        <TaskCard
-          task={item}
-          onOpen={() =>
-            navigation.navigate("TaskDetails", {
-              taskId: item.id,
-            })
-          }
-          onEdit={() =>
-            navigation.navigate("EditTask", {
-              taskId: item.id,
-            })
-          }
-          onStatusChange={() => {
-            if (!isBusy) {
-              void handleStatusChange(item);
-            }
-          }}
-          onDelete={() => {
-            if (!isBusy) {
-              handleDelete(item);
-            }
-          }}
-        />
-
-        {isBusy ? (
-          <View style={styles.busyOverlay}>
-            <ActivityIndicator size="small" color="#2563eb" />
-          </View>
-        ) : null}
-      </View>
-    );
-  }
-
   if (isLoading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#2563eb" />
-
-        <Text style={styles.loadingText}>Loading your tasks...</Text>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.loadingText}>Preparing your workspace...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={styles.screen}>
       <FlatList
         data={filteredTasks}
         keyExtractor={(item) => item.id}
-        renderItem={renderTask}
         contentContainerStyle={[
           styles.listContent,
           filteredTasks.length === 0 && styles.emptyListContent,
@@ -307,33 +334,83 @@ export default function DashboardScreen() {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={() => void loadTasks(true)}
-            tintColor="#2563eb"
+            tintColor={theme.colors.primary}
           />
         }
+        renderItem={({ item }) => (
+          <View style={styles.taskWrapper}>
+            <TaskCard
+              task={item}
+              busy={busyTaskId === item.id}
+              onOpen={() =>
+                navigation.navigate("TaskDetails", { taskId: item.id })
+              }
+              onEdit={() =>
+                navigation.navigate("EditTask", { taskId: item.id })
+              }
+              onStatusChange={() => void handleStatusChange(item)}
+              onDelete={() => setTaskToDelete(item)}
+            />
+          </View>
+        )}
         ListHeaderComponent={
           <View>
             <View style={styles.header}>
-              <View style={styles.headerText}>
-                <Text style={styles.eyebrow}>FORGEDESK</Text>
-
-                <Text style={styles.title}>Your Tasks</Text>
-
-                <Text style={styles.subtitle}>
-                  {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
-                </Text>
+              <View style={styles.brandRow}>
+                <View style={styles.brandMark}>
+                  <Text style={styles.brandMarkText}>F</Text>
+                </View>
+                <Text style={styles.brandName}>FORGEDESK</Text>
               </View>
 
-              <Pressable style={styles.logoutButton} onPress={logout}>
+              <Pressable onPress={logout} style={styles.logoutButton}>
                 <Text style={styles.logoutText}>Log out</Text>
               </Pressable>
             </View>
 
+            <View style={styles.welcomeBlock}>
+              <Text style={styles.greeting}>
+                Hello{user?.name ? `, ${user.name.split(" ")[0]}` : ""}
+              </Text>
+              <Text style={styles.title}>Your Tasks</Text>
+              <Text style={styles.subtitle}>
+                Keep your work moving forward.
+              </Text>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <SummaryCard
+                label="To Do"
+                count={counts.todo}
+                color="#2563EB"
+                background="#EFF6FF"
+              />
+              <SummaryCard
+                label="In Progress"
+                count={counts.inProgress}
+                color="#7C3AED"
+                background="#F3E8FF"
+              />
+              <SummaryCard
+                label="Completed"
+                count={counts.done}
+                color="#16A34A"
+                background="#DCFCE7"
+              />
+            </View>
+
+            <Pressable
+              style={styles.createButton}
+              onPress={() => navigation.navigate("CreateTask")}
+            >
+              <Text style={styles.createPlus}>＋</Text>
+              <Text style={styles.createButtonText}>Create new task</Text>
+            </Pressable>
+
             {error ? (
               <View style={styles.errorCard}>
-                <Text style={styles.errorTitle}>Something went wrong</Text>
-
+                <Text style={styles.errorTitle}>Connection or task error</Text>
                 <Text style={styles.errorText}>{error}</Text>
-
                 <Pressable
                   style={styles.retryButton}
                   onPress={() => void loadTasks()}
@@ -343,50 +420,46 @@ export default function DashboardScreen() {
               </View>
             ) : null}
 
-            <Pressable
-              style={styles.createButton}
-              onPress={() => navigation.navigate("CreateTask")}
-            >
-              <Text style={styles.createButtonText}>+ Create task</Text>
-            </Pressable>
-
-            <View style={styles.discoverySection}>
+            <View style={styles.searchSection}>
               <Text style={styles.sectionLabel}>Find a task</Text>
-
-              <TextInput
-                value={searchTerm}
-                onChangeText={setSearchTerm}
-                placeholder="Search tasks..."
-                placeholderTextColor="#94a3b8"
-                style={styles.searchInput}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="search"
-              />
+              <View style={styles.searchBox}>
+                <Text style={styles.searchIcon}>⌕</Text>
+                <TextInput
+                  value={searchTerm}
+                  onChangeText={setSearchTerm}
+                  placeholder="Search your tasks..."
+                  placeholderTextColor={theme.colors.muted}
+                  style={styles.searchInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+                {searchTerm.length > 0 ? (
+                  <Pressable onPress={() => setSearchTerm("")}>
+                    <Text style={styles.clearSearch}>×</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
 
             <View style={styles.filterSection}>
-              <Text style={styles.sectionLabel}>Status</Text>
-
+              <Text style={styles.sectionLabel}>Filter by status</Text>
               <View style={styles.filterRow}>
                 <FilterButton
-                  label="All"
+                  label={`All (${tasks.length})`}
                   active={statusFilter === "all"}
                   onPress={() => setStatusFilter("all")}
                 />
-
                 <FilterButton
                   label="To Do"
                   active={statusFilter === "todo"}
                   onPress={() => setStatusFilter("todo")}
                 />
-
                 <FilterButton
                   label="In Progress"
                   active={statusFilter === "in-progress"}
                   onPress={() => setStatusFilter("in-progress")}
                 />
-
                 <FilterButton
                   label="Done"
                   active={statusFilter === "done"}
@@ -395,42 +468,56 @@ export default function DashboardScreen() {
               </View>
             </View>
 
-            {tasks.length > 0 && filteredTasks.length > 0 ? (
-              <Text style={styles.sectionTitle}>
-                {hasActiveFilters
-                  ? `${filteredTasks.length} matching ${
-                      filteredTasks.length === 1 ? "task" : "tasks"
-                    }`
-                  : "All tasks"}
-              </Text>
-            ) : null}
+            <View style={styles.listHeading}>
+              <View>
+                <Text style={styles.sectionTitle}>
+                  {hasActiveFilters ? "Search results" : "All tasks"}
+                </Text>
+                <Text style={styles.sectionSubtitle}>
+                  {filteredTasks.length}{" "}
+                  {filteredTasks.length === 1 ? "task" : "tasks"}
+                  {hasActiveFilters ? " found" : " in your workspace"}
+                </Text>
+              </View>
+
+              {hasActiveFilters ? (
+                <Pressable onPress={clearFilters}>
+                  <Text style={styles.resetText}>Clear filters</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
         }
         ListEmptyComponent={
-          tasks.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No tasks yet</Text>
-
-              <Text style={styles.emptyText}>
-                Create your first task to start managing your work from mobile.
+          <View style={styles.emptyCard}>
+            <View style={styles.emptyIcon}>
+              <Text style={styles.emptyIconText}>
+                {tasks.length === 0 ? "＋" : "⌕"}
               </Text>
             </View>
-          ) : (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No matching tasks</Text>
-
-              <Text style={styles.emptyText}>
-                Try a different search or status filter.
-              </Text>
-
+            <Text style={styles.emptyTitle}>
+              {tasks.length === 0 ? "Nothing here yet" : "No matching tasks"}
+            </Text>
+            <Text style={styles.emptyText}>
+              {tasks.length === 0
+                ? "Create your first task and start organising your work."
+                : "Try another search term or change the status filter."}
+            </Text>
+            {tasks.length === 0 ? (
               <Pressable
-                style={styles.clearFiltersButton}
-                onPress={clearFilters}
+                style={styles.emptyButton}
+                onPress={() => navigation.navigate("CreateTask")}
               >
-                <Text style={styles.clearFiltersText}>Clear filters</Text>
+                <Text style={styles.emptyButtonText}>
+                  Create your first task
+                </Text>
               </Pressable>
-            </View>
-          )
+            ) : (
+              <Pressable onPress={clearFilters} style={styles.emptyButton}>
+                <Text style={styles.emptyButtonText}>Clear filters</Text>
+              </Pressable>
+            )}
+          </View>
         }
       />
 
@@ -442,14 +529,15 @@ export default function DashboardScreen() {
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.confirmationCard}>
-            <Text style={styles.confirmationTitle}>Delete task?</Text>
-
+            <View style={styles.deleteIcon}>
+              <Text style={styles.deleteIconText}>!</Text>
+            </View>
+            <Text style={styles.confirmationTitle}>Delete this task?</Text>
             <Text style={styles.confirmationText}>
               {taskToDelete
-                ? `Delete "${taskToDelete.title}"? This action cannot be undone.`
+                ? `"${taskToDelete.title}" will be permanently removed.`
                 : ""}
             </Text>
-
             <View style={styles.confirmationActions}>
               <Pressable
                 style={styles.cancelButton}
@@ -457,12 +545,11 @@ export default function DashboardScreen() {
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </Pressable>
-
               <Pressable
                 style={styles.confirmDeleteButton}
                 onPress={() => void confirmDelete()}
               >
-                <Text style={styles.confirmDeleteText}>Delete</Text>
+                <Text style={styles.confirmDeleteText}>Delete task</Text>
               </Pressable>
             </View>
           </View>
@@ -473,428 +560,517 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: theme.colors.background,
   },
-
   listContent: {
-    padding: 20,
-    paddingTop: 32,
-    paddingBottom: 32,
+    paddingHorizontal: 18,
+    paddingTop: 22,
+    paddingBottom: 36,
   },
-
   emptyListContent: {
     flexGrow: 1,
   },
-
   centered: {
     flex: 1,
-    backgroundColor: "#f8fafc",
     alignItems: "center",
     justifyContent: "center",
-    padding: 20,
+    backgroundColor: theme.colors.background,
   },
-
   loadingText: {
     marginTop: 12,
-    color: "#64748b",
-    fontSize: 15,
+    color: theme.colors.textSecondary,
+    fontSize: 14,
   },
-
   header: {
     flexDirection: "row",
-    alignItems: "flex-start",
     justifyContent: "space-between",
-    marginBottom: 20,
+    alignItems: "center",
+    marginBottom: 26,
   },
-
-  headerText: {
-    flex: 1,
-    paddingRight: 12,
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
   },
-
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#2563eb",
-    letterSpacing: 1,
-    marginBottom: 4,
-  },
-
-  title: {
-    fontSize: 30,
-    fontWeight: "700",
-    color: "#0f172a",
-  },
-
-  subtitle: {
-    marginTop: 4,
-    fontSize: 14,
-    color: "#64748b",
-  },
-
-  logoutButton: {
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    backgroundColor: "#ffffff",
-  },
-
-  logoutText: {
-    color: "#334155",
-    fontWeight: "600",
-  },
-
-  createButton: {
-    minHeight: 52,
-    borderRadius: 12,
-    backgroundColor: "#2563eb",
+  brandMark: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    backgroundColor: theme.colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 24,
+    marginRight: 9,
   },
-
-  createButtonText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "700",
+  brandMarkText: {
+    color: "#FFFFFF",
+    fontWeight: "900",
+    fontSize: 17,
   },
-
-  discoverySection: {
-    marginBottom: 16,
-  },
-
-  sectionLabel: {
+  brandName: {
+    color: theme.colors.primary,
+    fontWeight: "900",
     fontSize: 12,
-    fontWeight: "700",
-    color: "#475569",
-    marginBottom: 8,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
+    letterSpacing: 1.2,
   },
-
-  searchInput: {
-    minHeight: 48,
+  logoutButton: {
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 12,
-    backgroundColor: "#ffffff",
+    borderColor: theme.colors.border,
+    borderRadius: 11,
     paddingHorizontal: 14,
-    color: "#0f172a",
-    fontSize: 15,
+    paddingVertical: 9,
   },
-
-  filterSection: {
+  logoutText: {
+    color: theme.colors.textSecondary,
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  welcomeBlock: {
+    marginBottom: 20,
+  },
+  greeting: {
+    color: theme.colors.textSecondary,
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  title: {
+    color: theme.colors.text,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: "900",
+  },
+  subtitle: {
+    color: theme.colors.textSecondary,
+    fontSize: 14,
+    marginTop: 5,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    gap: 9,
     marginBottom: 18,
   },
-
+  summaryCard: {
+    flex: 1,
+    minHeight: 112,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 15,
+    padding: 11,
+    overflow: "hidden",
+  },
+  summaryIndicator: {
+    width: 22,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 12,
+  },
+  summaryCount: {
+    fontSize: 24,
+    fontWeight: "900",
+    color: theme.colors.text,
+  },
+  summaryLabel: {
+    fontSize: 10,
+    lineHeight: 14,
+    color: theme.colors.textSecondary,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  summaryIcon: {
+    position: "absolute",
+    right: 9,
+    top: 10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  summaryIconDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  createButton: {
+    minHeight: 54,
+    borderRadius: 14,
+    backgroundColor: theme.colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 25,
+    shadowColor: "#2563EB",
+    shadowOpacity: 0.16,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 3,
+  },
+  createPlus: {
+    color: "#FFFFFF",
+    fontSize: 21,
+    fontWeight: "500",
+    marginRight: 8,
+  },
+  createButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  errorCard: {
+    backgroundColor: theme.colors.dangerSoft,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 13,
+    padding: 14,
+    marginBottom: 18,
+  },
+  errorTitle: {
+    color: "#991B1B",
+    fontWeight: "800",
+    marginBottom: 5,
+  },
+  errorText: {
+    color: "#B91C1C",
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  retryButton: {
+    alignSelf: "flex-start",
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+  },
+  retryText: {
+    color: "#991B1B",
+    fontWeight: "800",
+    fontSize: 12,
+  },
+  searchSection: {
+    marginBottom: 19,
+  },
+  sectionLabel: {
+    color: theme.colors.textSecondary,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    marginBottom: 9,
+  },
+  searchBox: {
+    minHeight: 51,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 13,
+  },
+  searchIcon: {
+    fontSize: 23,
+    color: theme.colors.muted,
+    marginRight: 9,
+  },
+  searchInput: {
+    flex: 1,
+    minHeight: 49,
+    color: theme.colors.text,
+    fontSize: 14,
+  },
+  clearSearch: {
+    color: theme.colors.textSecondary,
+    fontSize: 23,
+    paddingHorizontal: 5,
+  },
+  filterSection: {
+    marginBottom: 22,
+  },
   filterRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
   },
-
   filterButton: {
-    minHeight: 40,
+    minHeight: 38,
     paddingHorizontal: 13,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#ffffff",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
-
   filterButtonActive: {
-    backgroundColor: "#2563eb",
-    borderColor: "#2563eb",
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
   },
-
   filterButtonText: {
-    color: "#475569",
-    fontSize: 13,
-    fontWeight: "600",
+    color: theme.colors.textSecondary,
+    fontSize: 11,
+    fontWeight: "700",
   },
-
   filterButtonTextActive: {
-    color: "#ffffff",
+    color: "#FFFFFF",
   },
-
+  listHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 13,
+  },
   sectionTitle: {
+    color: theme.colors.text,
     fontSize: 18,
-    fontWeight: "700",
-    color: "#0f172a",
-    marginBottom: 12,
+    fontWeight: "900",
   },
-
+  sectionSubtitle: {
+    color: theme.colors.muted,
+    fontSize: 11,
+    marginTop: 3,
+  },
+  resetText: {
+    color: theme.colors.primary,
+    fontWeight: "800",
+    fontSize: 12,
+  },
   taskWrapper: {
-    position: "relative",
     marginBottom: 12,
   },
-
   taskCard: {
-    backgroundColor: "#ffffff",
+    position: "relative",
+    backgroundColor: theme.colors.surface,
+    borderRadius: 17,
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 16,
-    padding: 16,
+    borderColor: theme.colors.border,
+    padding: 15,
   },
-
-  taskContent: {
-    flex: 1,
+  taskMain: {
+    paddingBottom: 2,
   },
-
+  taskTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  taskAccent: {
+    width: 3,
+    alignSelf: "stretch",
+    borderRadius: 2,
+    backgroundColor: theme.colors.primary,
+    marginRight: 10,
+  },
   taskTitle: {
-    fontSize: 17,
-    lineHeight: 24,
-    fontWeight: "700",
-    color: "#0f172a",
+    flex: 1,
+    color: theme.colors.text,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "800",
   },
-
   badgeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: 7,
     marginTop: 12,
+    marginLeft: 13,
   },
-
-  statusBadge: {
-    borderRadius: 999,
+  badge: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: "#eff6ff",
-  },
-
-  statusText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#1d4ed8",
-  },
-
-  priorityBadge: {
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: "#f1f5f9",
   },
-
-  priorityText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#475569",
+  badgeText: {
+    fontSize: 10,
+    fontWeight: "800",
   },
-
-  taskActions: {
-    marginTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#f1f5f9",
-    paddingTop: 12,
+  taskDivider: {
+    height: 1,
+    backgroundColor: theme.colors.divider,
+    marginTop: 15,
+    marginBottom: 8,
   },
-
-  secondaryAction: {
-    minHeight: 42,
-    borderRadius: 10,
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
+  statusAction: {
+    minHeight: 39,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: 10,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
-
-  secondaryActionText: {
-    color: "#334155",
-    fontSize: 13,
-    fontWeight: "600",
+  statusActionText: {
+    color: theme.colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "800",
   },
-
-  actionRow: {
+  actionArrow: {
+    color: theme.colors.textSecondary,
+    fontSize: 19,
+    marginLeft: 5,
+  },
+  taskActionRow: {
     flexDirection: "row",
     gap: 8,
     marginTop: 8,
   },
-
   editButton: {
     flex: 1,
-    minHeight: 42,
+    minHeight: 39,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
+    borderColor: theme.colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
-
-  editText: {
-    color: "#334155",
-    fontWeight: "700",
+  editButtonText: {
+    color: theme.colors.text,
+    fontSize: 12,
+    fontWeight: "800",
   },
-
   deleteButton: {
     flex: 1,
-    minHeight: 42,
+    minHeight: 39,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#fecaca",
+    borderColor: "#FECACA",
     alignItems: "center",
     justifyContent: "center",
   },
-
-  deleteText: {
-    color: "#b91c1c",
-    fontWeight: "700",
+  deleteButtonText: {
+    color: theme.colors.danger,
+    fontSize: 12,
+    fontWeight: "800",
   },
-
   busyOverlay: {
     position: "absolute",
     top: 0,
     right: 0,
     bottom: 0,
     left: 0,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.7)",
+    backgroundColor: "rgba(255,255,255,0.72)",
+    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
   },
-
   emptyCard: {
-    backgroundColor: "#ffffff",
+    alignItems: "center",
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 18,
+    padding: 25,
+    marginTop: 3,
+  },
+  emptyIcon: {
+    width: 48,
+    height: 48,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    padding: 24,
+    backgroundColor: theme.colors.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 13,
   },
-
+  emptyIconText: {
+    color: theme.colors.primary,
+    fontSize: 25,
+    fontWeight: "600",
+  },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#0f172a",
-    marginBottom: 8,
+    color: theme.colors.text,
+    fontSize: 17,
+    fontWeight: "900",
   },
-
   emptyText: {
-    fontSize: 14,
-    lineHeight: 21,
-    color: "#64748b",
-  },
-
-  clearFiltersButton: {
-    alignSelf: "flex-start",
-    marginTop: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 9,
-    backgroundColor: "#eff6ff",
-  },
-
-  clearFiltersText: {
-    color: "#2563eb",
-    fontWeight: "700",
-    fontSize: 14,
-  },
-
-  errorCard: {
-    backgroundColor: "#fef2f2",
-    borderWidth: 1,
-    borderColor: "#fecaca",
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
-  },
-
-  errorTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#991b1b",
-    marginBottom: 4,
-  },
-
-  errorText: {
-    fontSize: 14,
+    color: theme.colors.textSecondary,
+    textAlign: "center",
+    fontSize: 13,
     lineHeight: 20,
-    color: "#b91c1c",
+    marginTop: 7,
   },
-
-  retryButton: {
-    alignSelf: "flex-start",
-    marginTop: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#fecaca",
+  emptyButton: {
+    marginTop: 17,
+    backgroundColor: theme.colors.primarySoft,
+    paddingHorizontal: 15,
+    paddingVertical: 11,
+    borderRadius: 10,
   },
-
-  retryText: {
-    color: "#991b1b",
-    fontWeight: "700",
+  emptyButtonText: {
+    color: theme.colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
   },
-
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.45)",
+    backgroundColor: "rgba(15,23,42,0.48)",
     alignItems: "center",
     justifyContent: "center",
-    padding: 20,
+    padding: 22,
   },
-
   confirmationCard: {
     width: "100%",
-    maxWidth: 420,
-    backgroundColor: "#ffffff",
-    borderRadius: 18,
-    padding: 20,
+    maxWidth: 400,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 20,
+    padding: 22,
   },
-
+  deleteIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: theme.colors.dangerSoft,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 15,
+  },
+  deleteIconText: {
+    color: theme.colors.danger,
+    fontSize: 21,
+    fontWeight: "900",
+  },
   confirmationTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#0f172a",
-    marginBottom: 8,
+    color: theme.colors.text,
+    fontSize: 19,
+    fontWeight: "900",
   },
-
   confirmationText: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: "#64748b",
+    color: theme.colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 8,
   },
-
   confirmationActions: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 24,
+    gap: 9,
+    marginTop: 23,
   },
-
   cancelButton: {
     flex: 1,
     minHeight: 46,
-    borderRadius: 10,
+    borderRadius: 11,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
+    borderColor: theme.colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
-
   cancelButtonText: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "700",
+    color: theme.colors.text,
+    fontWeight: "800",
+    fontSize: 12,
   },
-
   confirmDeleteButton: {
     flex: 1,
     minHeight: 46,
-    borderRadius: 10,
-    backgroundColor: "#dc2626",
+    borderRadius: 11,
+    backgroundColor: theme.colors.danger,
     alignItems: "center",
     justifyContent: "center",
   },
-
   confirmDeleteText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "700",
+    color: "#FFFFFF",
+    fontWeight: "800",
+    fontSize: 12,
   },
 });
